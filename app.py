@@ -4,6 +4,39 @@ import pandas as pd
 import streamlit as st
 from google import genai
 
+
+def check_password():
+    """Retorna True se o usuário inseriu a senha correta."""
+
+    def password_entered():
+        """Verifica se a senha inserida coincide com a do Secrets."""
+        if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input(
+            "Senha de Acesso",
+            type="password",
+            on_change=password_entered,
+            key="password",
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input(
+            "Senha de Acesso",
+            type="password",
+            on_change=password_entered,
+            key="password",
+        )
+        st.error("😕 Senha incorreta")
+        return False
+    else:
+        return True
+
+
 USE_MOCK_GEMINI = False
 
 if "GEMINI_API_KEY" in st.secrets:
@@ -133,7 +166,6 @@ def calcular_facilidade(df):
 
 
 def chamar_gemini(client, prompt, conteudo):
-    # Mantém o Mock para quando você estiver apenas testando a interface
     if USE_MOCK_GEMINI:
         return """
 Categorias Mais Citadas:
@@ -175,105 +207,110 @@ if "resultado_final" not in st.session_state:
 if "tabelas" not in st.session_state:
     st.session_state.tabelas = {}
 
-st.set_page_config(page_title="Analisador NPS Track&Field", layout="wide")
-st.title("Analisador de NPS")
-st.caption("Track&Field · Análise automática com Gemini")
+if check_password():
+    st.set_page_config(page_title="Analisador NPS Track&Field", layout="wide")
+    st.title("Analisador de NPS")
+    st.caption("Track&Field · Análise automática com Gemini")
 
-with st.sidebar:
-    st.header("Configuração")
-    mobile_file = st.file_uploader("Planilha Mobile", type=["xlsx"])
-    desktop_file = st.file_uploader("Planilha Desktop", type=["xlsx"])
-    st.divider()
-    iniciar = st.button("Iniciar análise", type="primary", width="stretch")
-
-if iniciar:
-    if not mobile_file and not desktop_file:
-        st.warning("Envie pelo menos uma planilha")
-    else:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        st.subheader("Progresso da análise")
-        progress = st.progress(0)
-        status = st.empty()
-
-        resumos_parciais = []
-        temp_tabelas = {}
-        etapas = []
-        if mobile_file:
-            etapas.append(("Mobile", mobile_file))
-        if desktop_file:
-            etapas.append(("Desktop", desktop_file))
-
-        total_etapas = len(etapas) + 1
-        for i, (tipo, file) in enumerate(etapas):
-            status.info(f"Processando {tipo}")
-            df_bruto = carregar_df_bruto(file)
-            temp_tabelas[tipo] = {
-                "notas": calcular_notas(df_bruto),
-                "facilidade": calcular_facilidade(df_bruto),
-            }
-            comentarios = carregar_comentarios(df_bruto)
-            resumo = chamar_gemini(
-                client, PROMPT_PARCIAL + f"\nCanal: {tipo}", "\n".join(comentarios)
-            )
-            resumos_parciais.append(f"{tipo}:\n{resumo}")
-            progress.progress((i + 1) / total_etapas)
-
-        status.info("Gerando resumo final")
-        resultado = chamar_gemini(client, PROMPT_FINAL, "\n\n".join(resumos_parciais))
-
-        st.session_state.resultado_final = resultado
-        st.session_state.tabelas = temp_tabelas
-        st.session_state.analise_pronta = True
-
-        progress.progress(1.0)
-        status.success("Análise concluída")
-
-if st.session_state.analise_pronta:
-    st.divider()
-    st.subheader("Resultado final")
-    st.text_area("Resumo consolidado", st.session_state.resultado_final, height=400)
-
-    st.download_button(
-        "Baixar resultado",
-        st.session_state.resultado_final,
-        file_name="resultado_nps.txt",
-        mime="text/plain",
-    )
-
-    ver_tabelas = st.checkbox("Visualizar tabelas detalhadas")
-
-    if ver_tabelas:
+    with st.sidebar:
+        st.header("Configuração")
+        mobile_file = st.file_uploader("Planilha Mobile", type=["xlsx"])
+        desktop_file = st.file_uploader("Planilha Desktop", type=["xlsx"])
         st.divider()
-        col1, col2 = st.columns(2)
-        tab = st.session_state.tabelas
+        iniciar = st.button("Iniciar análise", type="primary", width="stretch")
 
-        if "Mobile" in tab:
-            with col1:
-                st.markdown("### Nota experiência MOBILE")
-                df_notas_mob = tab["Mobile"]["notas"].reset_index()
-                df_notas_mob.columns = ["Nota", "Contagem"]
-                st.dataframe(df_notas_mob, width="stretch", hide_index=True, height=427)
+    if iniciar:
+        if not mobile_file and not desktop_file:
+            st.warning("Envie pelo menos uma planilha")
+        else:
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            st.subheader("Progresso da análise")
+            progress = st.progress(0)
+            status = st.empty()
 
-        if "Desktop" in tab:
-            with col2:
-                st.markdown("### Nota experiência DESK")
-                df_notas_desk = tab["Desktop"]["notas"].reset_index()
-                df_notas_desk.columns = ["Nota", "Contagem"]
-                st.dataframe(
-                    df_notas_desk, width="stretch", hide_index=True, height=427
+            resumos_parciais = []
+            temp_tabelas = {}
+            etapas = []
+            if mobile_file:
+                etapas.append(("Mobile", mobile_file))
+            if desktop_file:
+                etapas.append(("Desktop", desktop_file))
+
+            total_etapas = len(etapas) + 1
+            for i, (tipo, file) in enumerate(etapas):
+                status.info(f"Processando {tipo}")
+                df_bruto = carregar_df_bruto(file)
+                temp_tabelas[tipo] = {
+                    "notas": calcular_notas(df_bruto),
+                    "facilidade": calcular_facilidade(df_bruto),
+                }
+                comentarios = carregar_comentarios(df_bruto)
+                resumo = chamar_gemini(
+                    client, PROMPT_PARCIAL + f"\nCanal: {tipo}", "\n".join(comentarios)
                 )
+                resumos_parciais.append(f"{tipo}:\n{resumo}")
+                progress.progress((i + 1) / total_etapas)
 
-        col3, col4 = st.columns(2)
-        if "Mobile" in tab:
-            with col3:
-                st.markdown("### Facilidade MOBILE")
-                df_facil_mob = tab["Mobile"]["facilidade"].reset_index()
-                df_facil_mob.columns = ["Classificação", "Respostas"]
-                st.dataframe(df_facil_mob, width="stretch", hide_index=True)
+            status.info("Gerando resumo final")
+            resultado = chamar_gemini(
+                client, PROMPT_FINAL, "\n\n".join(resumos_parciais)
+            )
 
-        if "Desktop" in tab:
-            with col4:
-                st.markdown("### Facilidade DESK")
-                df_facil_desk = tab["Desktop"]["facilidade"].reset_index()
-                df_facil_desk.columns = ["Classificação", "Respostas"]
-                st.dataframe(df_facil_desk, width="stretch", hide_index=True)
+            st.session_state.resultado_final = resultado
+            st.session_state.tabelas = temp_tabelas
+            st.session_state.analise_pronta = True
+
+            progress.progress(1.0)
+            status.success("Análise concluída")
+
+    if st.session_state.analise_pronta:
+        st.divider()
+        st.subheader("Resultado final")
+        st.text_area("Resumo consolidado", st.session_state.resultado_final, height=400)
+
+        st.download_button(
+            "Baixar resultado",
+            st.session_state.resultado_final,
+            file_name="resultado_nps.txt",
+            mime="text/plain",
+        )
+
+        ver_tabelas = st.checkbox("Visualizar tabelas detalhadas")
+
+        if ver_tabelas:
+            st.divider()
+            col1, col2 = st.columns(2)
+            tab = st.session_state.tabelas
+
+            if "Mobile" in tab:
+                with col1:
+                    st.markdown("### Nota experiência MOBILE")
+                    df_notas_mob = tab["Mobile"]["notas"].reset_index()
+                    df_notas_mob.columns = ["Nota", "Contagem"]
+                    st.dataframe(
+                        df_notas_mob, width="stretch", hide_index=True, height=427
+                    )
+
+            if "Desktop" in tab:
+                with col2:
+                    st.markdown("### Nota experiência DESK")
+                    df_notas_desk = tab["Desktop"]["notas"].reset_index()
+                    df_notas_desk.columns = ["Nota", "Contagem"]
+                    st.dataframe(
+                        df_notas_desk, width="stretch", hide_index=True, height=427
+                    )
+
+            col3, col4 = st.columns(2)
+            if "Mobile" in tab:
+                with col3:
+                    st.markdown("### Facilidade MOBILE")
+                    df_facil_mob = tab["Mobile"]["facilidade"].reset_index()
+                    df_facil_mob.columns = ["Classificação", "Respostas"]
+                    st.dataframe(df_facil_mob, width="stretch", hide_index=True)
+
+            if "Desktop" in tab:
+                with col4:
+                    st.markdown("### Facilidade DESK")
+                    df_facil_desk = tab["Desktop"]["facilidade"].reset_index()
+                    df_facil_desk.columns = ["Classificação", "Respostas"]
+                    st.dataframe(df_facil_desk, width="stretch", hide_index=True)
