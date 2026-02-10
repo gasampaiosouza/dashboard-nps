@@ -4,6 +4,24 @@ import pandas as pd
 import streamlit as st
 from google import genai
 
+st.markdown(
+    """
+    <style>
+    [data-testid="stMetricValue"] {
+        text-align: center;
+        display: flex;
+        justify-content: center;
+    }
+    [data-testid="stMetricLabel"] {
+        text-align: center;
+        display: flex;
+        justify-content: center;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def check_password():
     """Retorna True se o usuário inseriu a senha correta."""
@@ -165,6 +183,17 @@ def calcular_facilidade(df):
     return facilidade.value_counts().reindex(ordem, fill_value=0)
 
 
+def calcular_nps_por_notas(series_notas):
+    total = series_notas.sum()
+    if total == 0:
+        return 0
+
+    promotores = series_notas.loc[9:10].sum()
+    detratores = series_notas.loc[0:6].sum()
+
+    return int(((promotores - detratores) / total) * 100)
+
+
 def chamar_gemini(client, prompt, conteudo):
     if USE_MOCK_GEMINI:
         return """
@@ -213,7 +242,7 @@ if check_password():
     st.caption("Track&Field · Análise automática com Gemini")
 
     with st.sidebar:
-        st.header("Configuração")
+        st.header("Configurações")
         mobile_file = st.file_uploader("Planilha Mobile", type=["xlsx"])
         desktop_file = st.file_uploader("Planilha Desktop", type=["xlsx"])
         st.divider()
@@ -240,10 +269,15 @@ if check_password():
             for i, (tipo, file) in enumerate(etapas):
                 status.info(f"Processando {tipo}")
                 df_bruto = carregar_df_bruto(file)
+
+                notas = calcular_notas(df_bruto)
+
                 temp_tabelas[tipo] = {
-                    "notas": calcular_notas(df_bruto),
+                    "notas": notas,
                     "facilidade": calcular_facilidade(df_bruto),
+                    "nps": calcular_nps_por_notas(notas),
                 }
+
                 comentarios = carregar_comentarios(df_bruto)
                 resumo = chamar_gemini(
                     client, PROMPT_PARCIAL + f"\nCanal: {tipo}", "\n".join(comentarios)
@@ -291,6 +325,9 @@ if check_password():
                         df_notas_mob, width="stretch", hide_index=True, height=427
                     )
 
+                    nps_mobile = tab["Mobile"]["nps"]
+                    st.metric("NPS Mobile", f"{nps_mobile}%")
+
             if "Desktop" in tab:
                 with col2:
                     st.markdown("### Nota experiência DESK")
@@ -299,6 +336,38 @@ if check_password():
                     st.dataframe(
                         df_notas_desk, width="stretch", hide_index=True, height=427
                     )
+
+                    nps_desktop = tab["Desktop"]["nps"]
+                    st.metric("NPS Desktop", f"{nps_desktop}%")
+
+            # ----
+
+            total_notas = 0
+            total_promotores = 0
+            total_detratores = 0
+
+            for canal in ["Mobile", "Desktop"]:
+                if canal in tab:
+                    notas = tab[canal]["notas"]
+                    total_notas += notas.sum()
+                    total_promotores += notas.loc[9:10].sum()
+                    total_detratores += notas.loc[0:6].sum()
+
+            if total_notas > 0:
+                nps_geral = int(
+                    ((total_promotores - total_detratores) / total_notas) * 100
+                )
+            else:
+                nps_geral = 0
+
+            # ----
+
+            col_esq, col_centro, col_dir = st.columns([1, 2, 1])
+
+            with col_centro:
+                st.metric(label="NPS Geral", value=f"{nps_geral}%")
+
+            st.markdown("---")
 
             col3, col4 = st.columns(2)
             if "Mobile" in tab:
