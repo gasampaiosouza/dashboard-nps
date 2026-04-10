@@ -196,18 +196,17 @@ def grupo_nps(nota):
 
 
 def carregar_df_bruto(file):
-    # Nova estrutura: header na linha 0, sem as 14 linhas de preâmbulo
-    return pd.read_excel(file, header=0)
+    return pd.read_excel(file, header=14)
 
 
 def carregar_comentarios(df):
     comentarios = []
     for _, row in df.iterrows():
         try:
-            nota = int(row.iloc[1])
+            nota = int(pd.to_numeric(row.iloc[4], errors="coerce"))
         except:
             continue
-        comentario = str(row.iloc[3]).strip()
+        comentario = str(row.iloc[6]).strip()  # col 6 = comment
         if not comentario or comentario.lower() in (
             "nan",
             "sem comentários.",
@@ -220,11 +219,10 @@ def carregar_comentarios(df):
 
 
 def carregar_comentarios_por_mes(df):
-    """Retorna dict {periodo_str: [comentarios]} agrupado por ano-mês."""
     df = df.copy()
-
-    # Coluna de data é iloc[0]
-    df["_data"] = pd.to_datetime(df.iloc[:, 0], dayfirst=True, errors="coerce")
+    df["_data"] = pd.to_datetime(
+        df.iloc[:, 0], dayfirst=True, errors="coerce"
+    )  # col 0 = date ✅ unchanged
     df = df.dropna(subset=["_data"])
     df["_periodo"] = df["_data"].dt.to_period("M")
 
@@ -233,10 +231,10 @@ def carregar_comentarios_por_mes(df):
         comentarios = []
         for _, row in grupo.iterrows():
             try:
-                nota = int(row.iloc[1])
+                nota = int(pd.to_numeric(row.iloc[4], errors="coerce"))  # col 4
             except:
                 continue
-            comentario = str(row.iloc[3]).strip()
+            comentario = str(row.iloc[6]).strip()  # col 6
             if not comentario or comentario.lower() in (
                 "nan",
                 "sem comentários.",
@@ -252,12 +250,12 @@ def carregar_comentarios_por_mes(df):
 
 
 def calcular_notas(df):
-    notas = pd.to_numeric(df.iloc[:, 1], errors="coerce").dropna().astype(int)
+    notas = pd.to_numeric(df.iloc[:, 4], errors="coerce").dropna().astype(int)
     return notas.value_counts().reindex(range(0, 11), fill_value=0).sort_index()
 
 
 def calcular_facilidade(df):
-    facilidade = df.iloc[:, 2].astype(str).replace({"nan": "(não respondeu)"})
+    facilidade = df.iloc[:, 5].astype(str).replace({"nan": "(não respondeu)"})
     ordem = [
         "Muito fácil",
         "Fácil",
