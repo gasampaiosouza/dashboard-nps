@@ -187,6 +187,16 @@ Retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem blocos d
 """
 
 
+def _col(df, keyword):
+    """Retorna o índice da primeira coluna cujo nome contém o keyword (case-insensitive)."""
+    for i, col in enumerate(df.columns):
+        if keyword.lower() in str(col).lower():
+            return i
+    raise ValueError(
+        f"Coluna com '{keyword}' não encontrada. Colunas disponíveis: {list(df.columns)}"
+    )
+
+
 def grupo_nps(nota):
     if nota >= 9:
         return "Promotores"
@@ -200,13 +210,16 @@ def carregar_df_bruto(file):
 
 
 def carregar_comentarios(df):
+    col_nota = _col(df, "experiência geral")
+    col_comentario = _col(df, "Deixe seu comentário")
+
     comentarios = []
     for _, row in df.iterrows():
         try:
-            nota = int(pd.to_numeric(row.iloc[4], errors="coerce"))
+            nota = int(pd.to_numeric(row.iloc[col_nota], errors="coerce"))
         except:
             continue
-        comentario = str(row.iloc[6]).strip()  # col 6 = comment
+        comentario = str(row.iloc[col_comentario]).strip()
         if not comentario or comentario.lower() in (
             "nan",
             "sem comentários.",
@@ -220,9 +233,9 @@ def carregar_comentarios(df):
 
 def carregar_comentarios_por_mes(df):
     df = df.copy()
-    df["_data"] = pd.to_datetime(
-        df.iloc[:, 0], dayfirst=True, errors="coerce"
-    )  # col 0 = date ✅ unchanged
+    col_nota = _col(df, "experiência geral")
+    col_comentario = _col(df, "Deixe seu comentário")
+    df["_data"] = pd.to_datetime(df.iloc[:, 0], dayfirst=True, errors="coerce")
     df = df.dropna(subset=["_data"])
     df["_periodo"] = df["_data"].dt.to_period("M")
 
@@ -231,10 +244,10 @@ def carregar_comentarios_por_mes(df):
         comentarios = []
         for _, row in grupo.iterrows():
             try:
-                nota = int(pd.to_numeric(row.iloc[4], errors="coerce"))  # col 4
+                nota = int(pd.to_numeric(row.iloc[col_nota], errors="coerce"))  # col 4
             except:
                 continue
-            comentario = str(row.iloc[6]).strip()  # col 6
+            comentario = str(row.iloc[col_comentario]).strip()  # col 6
             if not comentario or comentario.lower() in (
                 "nan",
                 "sem comentários.",
@@ -250,12 +263,16 @@ def carregar_comentarios_por_mes(df):
 
 
 def calcular_notas(df):
-    notas = pd.to_numeric(df.iloc[:, 4], errors="coerce").dropna().astype(int)
+    col_nota = _col(df, "experiência geral")
+    notas = pd.to_numeric(df.iloc[:, col_nota], errors="coerce").dropna().astype(int)
     return notas.value_counts().reindex(range(0, 11), fill_value=0).sort_index()
 
 
 def calcular_facilidade(df):
-    facilidade = df.iloc[:, 5].astype(str).replace({"nan": "(não respondeu)"})
+    col_facilidade = _col(df, "fácil foi navegar")
+    facilidade = (
+        df.iloc[:, col_facilidade].astype(str).replace({"nan": "(não respondeu)"})
+    )
     ordem = [
         "Muito fácil",
         "Fácil",
