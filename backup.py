@@ -1,9 +1,6 @@
 import json
 import time
-<<<<<<< HEAD
-=======
 import unicodedata
->>>>>>> 343162d (feat: change sheet format & compile desk and mobile analysis)
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -163,11 +160,7 @@ Você é uma assistente especializada em análise de NPS da marca Track&Field.
 Você receberá comentários de clientes de um único mês.
 
 Classifique cada tema mencionado nas categorias abaixo e estime a porcentagem de comentários que cita cada uma.
-<<<<<<< HEAD
-As porcentagens NÃO precisam somar 100% — um comentário pode mencionar mais de um tema.
-=======
 As porcentagens NÃO precisam somar 100% - um comentário pode mencionar mais de um tema.
->>>>>>> 343162d (feat: change sheet format & compile desk and mobile analysis)
 
 Categorias (use exatamente estes nomes):
 - Entrega
@@ -194,8 +187,6 @@ Retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem blocos d
 }
 """
 
-<<<<<<< HEAD
-=======
 PROMPT_OUTROS = """
 Você é uma assistente especializada em análise de pesquisas da marca Track&Field.
 
@@ -225,7 +216,6 @@ Regras:
 - Português brasileiro
 """
 
->>>>>>> 343162d (feat: change sheet format & compile desk and mobile analysis)
 
 def _col(df, keyword):
     """Retorna o índice da primeira coluna cujo nome contém o keyword (case-insensitive)."""
@@ -430,9 +420,6 @@ def gerar_grafico_tendencia(dados_tendencia, titulo):
     return fig
 
 
-<<<<<<< HEAD
-# ── Session state ─────────────────────────────────────────────────────────────
-=======
 # ══════════════════════════════════════════════════════════════════════════
 # ── Novo módulo: campanhas Insider (Exit Intent PDP / Carrinho, Progressive
 #    Profile). A lógica de NPS acima permanece intacta e não é usada aqui.
@@ -702,7 +689,6 @@ def _reset_insider_state():
 
 
 # ── Session state (NPS, original) ───────────────────────────────────────────
->>>>>>> 343162d (feat: change sheet format & compile desk and mobile analysis)
 
 for key, default in [
     ("analise_pronta", False),
@@ -717,256 +703,6 @@ for key, default in [
 # ── App ───────────────────────────────────────────────────────────────────────
 
 if check_password():
-<<<<<<< HEAD
-    st.set_page_config(page_title="Analisador NPS Track&Field", layout="wide")
-    st.title("Analisador de NPS")
-    st.caption("Track&Field · Análise automática com Gemini")
-
-    with st.sidebar:
-        st.header("Configurações")
-        mobile_file = st.file_uploader("Planilha Mobile", type=["xlsx"])
-        desktop_file = st.file_uploader("Planilha Desktop", type=["xlsx"])
-        st.divider()
-        modo = st.radio(
-            "Modo de análise",
-            ["Resumo consolidado", "Tendência mensal (6 meses)", "Ambos"],
-            index=0,
-        )
-        iniciar = st.button("Iniciar análise", type="primary", use_container_width=True)
-
-    if iniciar:
-        if not mobile_file and not desktop_file:
-            st.warning("Envie pelo menos uma planilha")
-        else:
-            # client = genai.Client(api_key=GEMINI_API_KEY)
-            client = ""
-            st.subheader("Progresso da análise")
-
-            etapas = []
-            if mobile_file:
-                etapas.append(("Mobile", mobile_file))
-            if desktop_file:
-                etapas.append(("Desktop", desktop_file))
-
-            fazer_resumo = modo in ("Resumo consolidado", "Ambos")
-            fazer_tendencia = modo in ("Tendência mensal", "Ambos")
-
-            # Contagem total de chamadas para a barra de progresso
-            dfs = {}
-            for tipo, file in etapas:
-                dfs[tipo] = carregar_df_bruto(file)
-
-            total_chamadas = 0
-            meses_por_canal = {}
-            if fazer_tendencia:
-                for tipo in dfs:
-                    meses = carregar_comentarios_por_mes(dfs[tipo])
-                    meses_por_canal[tipo] = meses
-                    total_chamadas += len(meses)
-            if fazer_resumo:
-                total_chamadas += len(etapas) + 1  # parciais + final
-
-            progresso_atual = 0
-            progress = st.progress(0)
-            status = st.empty()
-
-            temp_tabelas = {}
-            resumos_parciais = []
-            temp_tend_mobile = {}
-            temp_tend_desktop = {}
-
-            for tipo, df_bruto in dfs.items():
-                # Tabelas de notas/facilidade (sem chamar Gemini)
-                notas = calcular_notas(df_bruto)
-                temp_tabelas[tipo] = {
-                    "notas": notas,
-                    "facilidade": calcular_facilidade(df_bruto),
-                    "nps": calcular_nps_por_notas(notas),
-                }
-
-                # ── Tendência mensal ──────────────────────────────────────────
-                if fazer_tendencia:
-                    meses = meses_por_canal[tipo]
-                    tend_resultado = {}
-                    for periodo, comentarios in meses.items():
-                        status.info(
-                            f"Tendência {tipo} — {periodo} ({len(comentarios)} comentários)"
-                        )
-                        tend_resultado[periodo] = chamar_gemini_tendencia(
-                            client, comentarios
-                        )
-                        progresso_atual += 1
-                        progress.progress(progresso_atual / total_chamadas)
-                        time.sleep(1)  # evita burst na quota
-
-                    if tipo == "Mobile":
-                        temp_tend_mobile = tend_resultado
-                    else:
-                        temp_tend_desktop = tend_resultado
-
-                # ── Resumo consolidado ────────────────────────────────────────
-                if fazer_resumo:
-                    status.info(f"Resumo consolidado {tipo}")
-                    comentarios_todos = carregar_comentarios(df_bruto)
-                    resumo = chamar_gemini(
-                        client,
-                        PROMPT_PARCIAL + f"\nCanal: {tipo}",
-                        "\n".join(comentarios_todos),
-                    )
-                    resumos_parciais.append(f"{tipo}:\n{resumo}")
-                    progresso_atual += 1
-                    progress.progress(progresso_atual / total_chamadas)
-
-            if fazer_resumo and resumos_parciais:
-                status.info("Gerando resumo final consolidado")
-                resultado = chamar_gemini(
-                    client, PROMPT_FINAL, "\n\n".join(resumos_parciais)
-                )
-                st.session_state.resultado_final = resultado
-                progresso_atual += 1
-                progress.progress(progresso_atual / total_chamadas)
-
-            st.session_state.tabelas = temp_tabelas
-            st.session_state.tendencia_mobile = temp_tend_mobile
-            st.session_state.tendencia_desktop = temp_tend_desktop
-            st.session_state.analise_pronta = True
-
-            progress.progress(1.0)
-            status.success("Análise concluída!")
-
-    # ── Resultados ─────────────────────────────────────────────────────────────
-
-    if st.session_state.analise_pronta:
-        st.divider()
-
-        # ── Tendência mensal ──────────────────────────────────────────────────
-        tend_mob = st.session_state.tendencia_mobile
-        tend_desk = st.session_state.tendencia_desktop
-
-        if tend_mob or tend_desk:
-            st.subheader("Tendência de categorias por mês")
-            st.caption(
-                "Percentual de comentários que menciona cada tema por mês. "
-                "Um comentário pode citar mais de um tema, então os valores não somam 100%."
-            )
-
-            if tend_mob and tend_desk:
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.plotly_chart(
-                        gerar_grafico_tendencia(tend_mob, "Mobile — evolução mensal"),
-                        use_container_width=True,
-                    )
-                with c2:
-                    st.plotly_chart(
-                        gerar_grafico_tendencia(tend_desk, "Desktop — evolução mensal"),
-                        use_container_width=True,
-                    )
-            elif tend_mob:
-                st.plotly_chart(
-                    gerar_grafico_tendencia(tend_mob, "Mobile — evolução mensal"),
-                    use_container_width=True,
-                )
-            else:
-                st.plotly_chart(
-                    gerar_grafico_tendencia(tend_desk, "Desktop — evolução mensal"),
-                    use_container_width=True,
-                )
-
-            # Tabela numérica opcional
-            with st.expander("Ver dados brutos da tendência"):
-                for canal, tend in [("Mobile", tend_mob), ("Desktop", tend_desk)]:
-                    if tend:
-                        df_tend = pd.DataFrame(tend).T
-                        df_tend.index.name = "Mês"
-                        st.markdown(f"**{canal}**")
-                        st.dataframe(
-                            df_tend.style.format("{:.0f}%"), use_container_width=True
-                        )
-
-        # ── Resumo consolidado ────────────────────────────────────────────────
-        if st.session_state.resultado_final:
-            st.divider()
-            st.subheader("Resultado final consolidado")
-            st.text_area("Resumo", st.session_state.resultado_final, height=400)
-            st.download_button(
-                "Baixar resultado",
-                st.session_state.resultado_final,
-                file_name="resultado_nps.txt",
-                mime="text/plain",
-            )
-
-        # ── Tabelas detalhadas ────────────────────────────────────────────────
-        ver_tabelas = st.checkbox("Visualizar tabelas detalhadas")
-        if ver_tabelas:
-            st.divider()
-            col1, col2 = st.columns(2)
-            tab = st.session_state.tabelas
-
-            if "Mobile" in tab:
-                with col1:
-                    st.markdown("### Nota experiência MOBILE")
-                    df_notas_mob = tab["Mobile"]["notas"].reset_index()
-                    df_notas_mob.columns = ["Nota", "Contagem"]
-                    st.dataframe(
-                        df_notas_mob,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=427,
-                    )
-                    st.metric("NPS Mobile", f"{tab['Mobile']['nps']}%")
-
-            if "Desktop" in tab:
-                with col2:
-                    st.markdown("### Nota experiência DESK")
-                    df_notas_desk = tab["Desktop"]["notas"].reset_index()
-                    df_notas_desk.columns = ["Nota", "Contagem"]
-                    st.dataframe(
-                        df_notas_desk,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=427,
-                    )
-                    st.metric("NPS Desktop", f"{tab['Desktop']['nps']}%")
-
-            total_notas = total_promotores = total_detratores = 0
-            for canal in ["Mobile", "Desktop"]:
-                if canal in tab:
-                    notas = tab[canal]["notas"]
-                    total_notas += notas.sum()
-                    total_promotores += notas.loc[9:10].sum()
-                    total_detratores += notas.loc[0:6].sum()
-
-            nps_geral = (
-                int(((total_promotores - total_detratores) / total_notas) * 100)
-                if total_notas > 0
-                else 0
-            )
-
-            _, col_centro, _ = st.columns([1, 2, 1])
-            with col_centro:
-                st.metric("NPS Geral", f"{nps_geral}%")
-
-            st.markdown("---")
-            col3, col4 = st.columns(2)
-            if "Mobile" in tab:
-                with col3:
-                    st.markdown("### Facilidade MOBILE")
-                    df_facil_mob = tab["Mobile"]["facilidade"].reset_index()
-                    df_facil_mob.columns = ["Classificação", "Respostas"]
-                    st.dataframe(
-                        df_facil_mob, use_container_width=True, hide_index=True
-                    )
-
-            if "Desktop" in tab:
-                with col4:
-                    st.markdown("### Facilidade DESK")
-                    df_facil_desk = tab["Desktop"]["facilidade"].reset_index()
-                    df_facil_desk.columns = ["Classificação", "Respostas"]
-                    st.dataframe(
-                        df_facil_desk, use_container_width=True, hide_index=True
-                    )
-=======
     st.set_page_config(page_title="Analisador de Pesquisas Track&Field", layout="wide")
     st.title("Analisador de Pesquisas")
     st.caption("Track&Field · Análise automática com Gemini")
@@ -1389,4 +1125,3 @@ if check_password():
                                     st.markdown(f"- {texto}")
 
                     st.divider()
->>>>>>> 343162d (feat: change sheet format & compile desk and mobile analysis)
