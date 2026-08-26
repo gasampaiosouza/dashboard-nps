@@ -236,7 +236,21 @@ def grupo_nps(nota):
 
 
 def carregar_df_bruto(file):
-    return pd.read_excel(file, header=14)
+    """Lê a planilha procurando dinamicamente onde está a linha de cabeçalho."""
+    df_raw = pd.read_excel(file, header=None)
+    header_idx = 14  # Fallback pro formato antigo
+
+    # Procura nas primeiras 30 linhas pelo cabeçalho (que possui Date/User ID ou NPS)
+    for i in range(min(30, len(df_raw))):
+        row_str = " ".join(str(x).lower() for x in df_raw.iloc[i].values)
+        if "date" in row_str and "user id" in row_str:
+            header_idx = i
+            break
+        elif "experiência geral" in row_str:
+            header_idx = i
+            break
+
+    return pd.read_excel(file, header=header_idx)
 
 
 def carregar_comentarios(df):
@@ -274,10 +288,10 @@ def carregar_comentarios_por_mes(df):
         comentarios = []
         for _, row in grupo.iterrows():
             try:
-                nota = int(pd.to_numeric(row.iloc[col_nota], errors="coerce"))  # col 4
+                nota = int(pd.to_numeric(row.iloc[col_nota], errors="coerce"))
             except:
                 continue
-            comentario = str(row.iloc[col_comentario]).strip()  # col 6
+            comentario = str(row.iloc[col_comentario]).strip()
             if not comentario or comentario.lower() in (
                 "nan",
                 "sem comentários.",
@@ -421,15 +435,9 @@ def gerar_grafico_tendencia(dados_tendencia, titulo):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# ── Novo módulo: campanhas Insider (Exit Intent PDP / Carrinho, Progressive
-#    Profile). A lógica de NPS acima permanece intacta e não é usada aqui.
+# ── Módulo: campanhas Insider (Exit Intent PDP / Carrinho, Progressive Profile)
 # ══════════════════════════════════════════════════════════════════════════
 
-# Cada pergunta é identificada por um trecho único (match) que existe na
-# coluna correspondente tanto na planilha Desktop quanto na Mobile.
-# "opcoes": None indica que a lista oficial de opções ainda não foi
-# confirmada - nesse caso todas as respostas são exibidas como distribuição
-# bruta, sem separar "oficial" x "Outros".
 CAMPANHAS_CONFIG = {
     "PDP": {
         "label": "Intenção de saída - PDP",
@@ -537,8 +545,6 @@ CAMPANHAS_CONFIG = {
                     "Garrafas",
                 ],
             },
-            # Opções oficiais ainda não confirmadas com o time - ao receber a
-            # lista, basta preencher "opcoes" igual às perguntas acima.
             {
                 "chave": "performance",
                 "titulo": "O que você busca hoje para elevar a sua performance ou rotina?",
@@ -584,10 +590,6 @@ def filtrar_por_periodo(df, data_ini, data_fim):
 
 
 def classificar_pergunta(df, pergunta_cfg):
-    """
-    Retorna (contagem: dict[str, int], outros: list[str]).
-    Se a pergunta não existir na planilha (coluna não encontrada), retorna (None, None).
-    """
     try:
         col = _col(df, pergunta_cfg["match"])
     except ValueError:
@@ -598,7 +600,6 @@ def classificar_pergunta(df, pergunta_cfg):
 
     opcoes = pergunta_cfg["opcoes"]
     if not opcoes:
-        # Sem lista oficial ainda: mostra distribuição bruta das respostas
         return respostas.value_counts().to_dict(), []
 
     mapa_norm = {_normaliza(o): o for o in opcoes}
@@ -615,42 +616,40 @@ def classificar_pergunta(df, pergunta_cfg):
 
 def gerar_grafico_distribuicao(contagem_mobile, contagem_desktop, titulo):
     """
-    contagem_mobile / contagem_desktop: dict[str, int] ou None (canal ausente)
-    Mostra % de respondentes de cada canal que escolheu cada opção.
+    Mostra o % total agregando respondentes de Mobile e Desktop em uma barra única.
     """
     opcoes = []
     if contagem_mobile:
-        opcoes = list(contagem_mobile.keys())
-    elif contagem_desktop:
-        opcoes = list(contagem_desktop.keys())
+        opcoes.extend(list(contagem_mobile.keys()))
+    if contagem_desktop:
+        opcoes.extend(list(contagem_desktop.keys()))
+
+    # Preserva a ordem original mapeada sem duplicatas
+    opcoes = list(dict.fromkeys(opcoes))
+
+    total_m = sum(contagem_mobile.values()) if contagem_mobile else 0
+    total_d = sum(contagem_desktop.values()) if contagem_desktop else 0
+    total = total_m + total_d or 1
+
+    valores = []
+    for o in opcoes:
+        val_m = contagem_mobile.get(o, 0) if contagem_mobile else 0
+        val_d = contagem_desktop.get(o, 0) if contagem_desktop else 0
+        valores.append(round((val_m + val_d) / total * 100, 1))
 
     fig = go.Figure()
-
-    if contagem_mobile:
-        total_m = sum(contagem_mobile.values()) or 1
-        fig.add_trace(
-            go.Bar(
-                name="Mobile",
-                x=opcoes,
-                y=[round(contagem_mobile.get(o, 0) / total_m * 100, 1) for o in opcoes],
-                marker_color="#e63946",
-            )
+    fig.add_trace(
+        go.Bar(
+            name="Total (Mobile + Desktop)",
+            x=opcoes,
+            y=valores,
+            marker_color="#457b9d",
         )
-    if contagem_desktop:
-        total_d = sum(contagem_desktop.values()) or 1
-        fig.add_trace(
-            go.Bar(
-                name="Desktop",
-                x=opcoes,
-                y=[round(contagem_desktop.get(o, 0) / total_d * 100, 1) for o in opcoes],
-                marker_color="#264653",
-            )
-        )
+    )
 
     fig.update_layout(
         title=titulo,
-        barmode="group",
-        yaxis_title="% de respondentes",
+        yaxis_title="% de respondentes combinados",
         xaxis=dict(tickangle=-15),
         height=420,
         margin=dict(b=140),
@@ -671,26 +670,12 @@ def resumir_outros_com_ia(pergunta_titulo, outros_mobile, outros_desktop):
     return chamar_gemini(None, prompt, "\n".join(linhas))
 
 
-# ── Session state (novo módulo) ─────────────────────────────────────────────
+# ── Session state ─────────────────────────────────────────────
 
 for key, default in [
     ("insider_analise_pronta", False),
     ("insider_resultados", {}),
     ("insider_resumos_ia", {}),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-
-def _reset_insider_state():
-    st.session_state.insider_analise_pronta = False
-    st.session_state.insider_resultados = {}
-    st.session_state.insider_resumos_ia = {}
-
-
-# ── Session state (NPS, original) ───────────────────────────────────────────
-
-for key, default in [
     ("analise_pronta", False),
     ("resultado_final", ""),
     ("tabelas", {}),
@@ -699,6 +684,11 @@ for key, default in [
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
+
+def _reset_insider_state():
+    st.session_state.insider_analise_pronta = False
+    st.session_state.insider_resultados = {}
+    st.session_state.insider_resumos_ia = {}
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -725,7 +715,7 @@ if check_password():
     }
 
     # ═══════════════════════════════════════════════════════════════════════
-    # MODO 1: NPS (lógica original, inalterada)
+    # MODO 1: NPS
     # ═══════════════════════════════════════════════════════════════════════
     if tipo_analise == "NPS":
         with st.sidebar:
@@ -744,7 +734,6 @@ if check_password():
             if not mobile_file and not desktop_file:
                 st.warning("Envie pelo menos uma planilha")
             else:
-                # client = genai.Client(api_key=GEMINI_API_KEY)
                 client = ""
                 st.subheader("Progresso da análise")
 
@@ -757,7 +746,6 @@ if check_password():
                 fazer_resumo = modo in ("Resumo consolidado", "Ambos")
                 fazer_tendencia = modo in ("Tendência mensal", "Ambos")
 
-                # Contagem total de chamadas para a barra de progresso
                 dfs = {}
                 for tipo, file in etapas:
                     dfs[tipo] = carregar_df_bruto(file)
@@ -770,7 +758,7 @@ if check_password():
                         meses_por_canal[tipo] = meses
                         total_chamadas += len(meses)
                 if fazer_resumo:
-                    total_chamadas += len(etapas) + 1  # parciais + final
+                    total_chamadas += len(etapas) + 1
 
                 progresso_atual = 0
                 progress = st.progress(0)
@@ -782,7 +770,6 @@ if check_password():
                 temp_tend_desktop = {}
 
                 for tipo, df_bruto in dfs.items():
-                    # Tabelas de notas/facilidade (sem chamar Gemini)
                     notas = calcular_notas(df_bruto)
                     temp_tabelas[tipo] = {
                         "notas": notas,
@@ -790,7 +777,6 @@ if check_password():
                         "nps": calcular_nps_por_notas(notas),
                     }
 
-                    # ── Tendência mensal ──────────────────────────────────────────
                     if fazer_tendencia:
                         meses = meses_por_canal[tipo]
                         tend_resultado = {}
@@ -803,14 +789,13 @@ if check_password():
                             )
                             progresso_atual += 1
                             progress.progress(progresso_atual / total_chamadas)
-                            time.sleep(1)  # evita burst na quota
+                            time.sleep(1)
 
                         if tipo == "Mobile":
                             temp_tend_mobile = tend_resultado
                         else:
                             temp_tend_desktop = tend_resultado
 
-                    # ── Resumo consolidado ────────────────────────────────────────
                     if fazer_resumo:
                         status.info(f"Resumo consolidado {tipo}")
                         comentarios_todos = carregar_comentarios(df_bruto)
@@ -840,12 +825,9 @@ if check_password():
                 progress.progress(1.0)
                 status.success("Análise concluída!")
 
-        # ── Resultados ─────────────────────────────────────────────────────────────
-
         if st.session_state.analise_pronta:
             st.divider()
 
-            # ── Tendência mensal ──────────────────────────────────────────────────
             tend_mob = st.session_state.tendencia_mobile
             tend_desk = st.session_state.tendencia_desktop
 
@@ -879,7 +861,6 @@ if check_password():
                         use_container_width=True,
                     )
 
-                # Tabela numérica opcional
                 with st.expander("Ver dados brutos da tendência"):
                     for canal, tend in [("Mobile", tend_mob), ("Desktop", tend_desk)]:
                         if tend:
@@ -890,7 +871,6 @@ if check_password():
                                 df_tend.style.format("{:.0f}%"), use_container_width=True
                             )
 
-            # ── Resumo consolidado ────────────────────────────────────────────────
             if st.session_state.resultado_final:
                 st.divider()
                 st.subheader("Resultado final consolidado")
@@ -902,7 +882,6 @@ if check_password():
                     mime="text/plain",
                 )
 
-            # ── Tabelas detalhadas ────────────────────────────────────────────────
             ver_tabelas = st.checkbox("Visualizar tabelas detalhadas")
             if ver_tabelas:
                 st.divider()
@@ -1001,7 +980,6 @@ if check_password():
             if desktop_file:
                 dfs_brutos["Desktop"] = carregar_df_bruto(desktop_file)
 
-            # ── Filtro de período ────────────────────────────────────────────
             todas_datas = pd.concat(
                 [carregar_datas(df) for df in dfs_brutos.values()]
             ).dropna()
@@ -1062,7 +1040,6 @@ if check_password():
                                     pergunta_cfg["chave"]
                                 ] = resumo
 
-            # ── Exibição dos resultados ──────────────────────────────────────
             if st.session_state.insider_analise_pronta:
                 st.divider()
                 resultados = st.session_state.insider_resultados
@@ -1079,7 +1056,7 @@ if check_password():
                     outros_desktop = entrada.get("Desktop", {}).get("outros") or []
 
                     if contagem_mobile is None and contagem_desktop is None:
-                        continue  # pergunta não existe nesta planilha (ex: lógica condicional)
+                        continue
 
                     st.markdown(f"### {pergunta_cfg['titulo']}")
                     if pergunta_cfg["opcoes"] is None:
@@ -1090,7 +1067,7 @@ if check_password():
 
                     n_mobile = sum(contagem_mobile.values()) if contagem_mobile else 0
                     n_desktop = sum(contagem_desktop.values()) if contagem_desktop else 0
-                    st.caption(f"Respostas: Mobile = {n_mobile} · Desktop = {n_desktop}")
+                    st.caption(f"Respostas: Mobile = {n_mobile} · Desktop = {n_desktop} (Total = {n_mobile + n_desktop})")
 
                     if (contagem_mobile and any(contagem_mobile.values())) or (
                         contagem_desktop and any(contagem_desktop.values())
@@ -1107,7 +1084,7 @@ if check_password():
                     total_outros = len(outros_mobile) + len(outros_desktop)
                     if total_outros > 0:
                         with st.expander(
-                            f"Ver respostas abertas / \"Outros\" ({total_outros})"
+                            f'Ver respostas abertas / "Outros" ({total_outros})'
                         ):
                             resumo_ia = st.session_state.insider_resumos_ia.get(chave)
                             if resumo_ia:
